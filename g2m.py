@@ -1,10 +1,10 @@
 import os, requests, argparse, re
 from fractions import Fraction
 from midiutil.MidiFile import MIDIFile
-import openai, mido
+import mido
+from openai import OpenAI
 
 #settings
-openaiKey = '<YOUR API KEY>'
 system = 'You are MusicGPT, a music creation and completion chat bot that. When a user gives you a prompt,' \
           ' you return them a song showing the notes, durations, and times that they occur. Respond with just the music.' \
          '\n\nNotation looks like this:\n(Note-duration-time in beats)\nC4-1/4-0, Eb4-1/8-2.5, D4-1/4-3, F4-1/4-3 etc.'
@@ -22,8 +22,11 @@ parser.add_argument('-c', '--chat', help='send follow up messages to make revisi
 parser.add_argument('-l', '--load', help='load a MIDI file to be appended to your prompt')
 parser.add_argument('-v', '--verbose', help='display GPT-4 output', action='store_true')
 parser.add_argument('-o', '--output', help='specify output directory (default: current)', default=path)
-parser.add_argument('-a', '--auth', help='specify openai api key (edit this script file to set a default)', default=openaiKey)
+parser.add_argument('-a', '--auth', help='specify openai api key (edit this script file to set a default)', default=os.getenv("OPENAI_API_KEY"))
 args = parser.parse_args()
+assert os.path.exists(args.output), "[!] The output directory does not exist. Please run $mkdir -p <output directory>"
+
+client = OpenAI(api_key=args.auth)
 
 #other vars n functions
 notes = [['C'], ['Db', 'C#'], ['D'], ['Eb', 'D#'], ['E'], ['F'], ['Gb', 'F#'], ['G'], ['Ab', 'G#'], ['A'], ['Bb', 'A#'], ['B']]
@@ -70,15 +73,16 @@ if args.load:
 history = [{'role': 'system', 'content': system}, {'role': 'user', 'content': prompt}]
 
 # main loop
-while 1:
+for i in range(100):
     #openai request
     print('[*] Making request to OpenAI API')
-    openai.api_key = args.auth
-    r = openai.ChatCompletion.create(
-        model = 'gpt-4',
-        messages = history
+    r = client.chat.completions.create(
+        model='gpt-4',
+        messages=history
     )
-    response = r['choices'][0]['message']['content']
+    response = r.choices[0].message.content
+    with open(os.path.join(args.output, f'response{i}.txt'), 'w') as f:
+        f.write(response)
     if args.verbose:
         print('\n'+response+'\n')
     history.append({'role': 'assistant', 'content': response})
@@ -97,7 +101,7 @@ while 1:
     for i in noteInfo:
         pitch, dur, time = i
         melody.addNote(0, 0, pitch, time, dur, 100)
-    with open(os.path.join(args.output, 'output.mid'), 'wb') as f:
+    with open(os.path.join(args.output, f'output{i}.mid'), 'wb') as f:
         melody.writeFile(f)
     print('[*] Wrote the MIDI file.')
 
